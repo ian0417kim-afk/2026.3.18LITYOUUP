@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>릿츄업 에세이 수업</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; overflow: hidden; background: #1E3A5F; touch-action: pan-x; }
+        body { font-family: 'Malgun Gothic', -apple-system, BlinkMacSystemFont, sans-serif; }
+        
+        #viewer {
+            width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+            background: #1E3A5F;
+        }
+        #viewer canvas { max-width: 100%; max-height: 100%; }
+        
+        .page-indicator {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.5); color: white;
+            padding: 6px 14px; border-radius: 20px; font-size: 12px;
+            z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+        .page-indicator.show { opacity: 1; }
+        
+        .download-btn {
+            position: fixed; top: 15px; right: 15px;
+            background: rgba(241, 143, 1, 0.9); color: white;
+            padding: 8px 12px; border-radius: 8px; text-decoration: none;
+            font-size: 12px; font-weight: bold; z-index: 100; opacity: 0.7;
+        }
+        .download-btn:active { opacity: 1; }
+        
+        .loading {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: #1E3A5F; color: white; z-index: 200;
+        }
+        .loading .spinner {
+            width: 50px; height: 50px;
+            border: 4px solid rgba(255,255,255,0.2); border-top-color: #F18F01;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        .loading h2 { font-size: 1.5em; margin-bottom: 10px; }
+        .loading p { opacity: 0.8; font-size: 14px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .swipe-hint {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.7); color: white;
+            padding: 10px 20px; border-radius: 25px; font-size: 14px;
+            z-index: 100; display: flex; align-items: center; gap: 10px;
+            animation: fadeInOut 3s ease-in-out forwards;
+        }
+        .swipe-hint .arrow { animation: swipeArrow 1s ease-in-out infinite; }
+        @keyframes swipeArrow { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-10px); } }
+        @keyframes fadeInOut { 0% { opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <h2>릿츄업</h2>
+        <p>에세이 수업 설명회</p>
+    </div>
+    
+    <div id="viewer"></div>
+    <div class="page-indicator" id="pageIndicator">1 / 20</div>
+    <a href="essay_vertical.pptx" class="download-btn" download>📥 PPT</a>
+    <div class="swipe-hint" id="swipeHint"><span class="arrow">👈</span> 스와이프하여 넘기기</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
+        let touchStartX = 0, touchStartY = 0, indicatorTimeout = null;
+        
+        const viewer = document.getElementById('viewer');
+        const pageIndicator = document.getElementById('pageIndicator');
+        const loading = document.getElementById('loading');
+        const swipeHint = document.getElementById('swipeHint');
+        
+        function getScale() {
+            return Math.min(window.innerWidth / 405, window.innerHeight / 720);
+        }
+        
+        function renderPage(num) {
+            pageRendering = true;
+            pdfDoc.getPage(num).then(page => {
+                const viewport = page.getViewport({scale: getScale()});
+                const canvas = document.createElement('canvas');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                page.render({canvasContext: canvas.getContext('2d'), viewport}).promise.then(() => {
+                    pageRendering = false;
+                    viewer.innerHTML = '';
+                    viewer.appendChild(canvas);
+                    if (pageNumPending !== null) { renderPage(pageNumPending); pageNumPending = null; }
+                });
+            });
+            pageIndicator.textContent = `${num} / ${pdfDoc.numPages}`;
+            showIndicator();
+        }
+        
+        function showIndicator() {
+            pageIndicator.classList.add('show');
+            clearTimeout(indicatorTimeout);
+            indicatorTimeout = setTimeout(() => pageIndicator.classList.remove('show'), 1500);
+        }
+        
+        function queueRenderPage(num) { pageRendering ? pageNumPending = num : renderPage(num); }
+        function prevPage() { if (pageNum > 1) { pageNum--; queueRenderPage(pageNum); } }
+        function nextPage() { if (pageNum < pdfDoc.numPages) { pageNum++; queueRenderPage(pageNum); } }
+        
+        viewer.addEventListener('touchstart', e => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, {passive: true});
+        
+        viewer.addEventListener('touchend', e => {
+            const diffX = touchStartX - e.changedTouches[0].screenX;
+            const diffY = touchStartY - e.changedTouches[0].screenY;
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+                diffX > 0 ? nextPage() : prevPage();
+                swipeHint.classList.add('hidden');
+            }
+        }, {passive: true});
+        
+        viewer.addEventListener('click', showIndicator);
+        document.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') prevPage(); if (e.key === 'ArrowRight') nextPage(); });
+        window.addEventListener('resize', () => pdfDoc && queueRenderPage(pageNum));
+        
+        pdfjsLib.getDocument('essay_vertical.pdf').promise.then(pdf => {
+            pdfDoc = pdf;
+            renderPage(1);
+            setTimeout(() => loading.classList.add('hidden'), 500);
+        }).catch(() => {
+            loading.innerHTML = '<h2>⚠️</h2><p>PDF를 불러올 수 없습니다</p><a href="essay_vertical.pptx" download style="color:#F18F01;margin-top:20px;display:block;">PPT 다운로드</a>';
+        });
+        
+        setTimeout(() => swipeHint.classList.add('hidden'), 3500);
+    </script>
+</body>
+</html>
